@@ -32,7 +32,7 @@ async function injectPageStyles(page: Page): Promise<void> {
   });
 }
 
-async function captureScreenshots(page: Page): Promise<void> {
+async function captureScreenshots(page: Page): Promise<number> {
   const storybookElement = page.locator("storybook");
   await storybookElement.waitFor({ state: "visible", timeout: 30000 });
 
@@ -68,11 +68,13 @@ async function captureScreenshots(page: Page): Promise<void> {
       break;
     }
   }
+
+  // Return total number of pages
+  return totalPages;
 }
 
-async function saveAudio(page: Page): Promise<void> {
+async function saveAudio(page: Page, totalPages: number): Promise<void> {
   let audioIndex = 0;
-  let timeoutHandle: NodeJS.Timeout | null = null;
 
   const audioPromise = new Promise<void>((resolve) => {
     page.on("response", async (response) => {
@@ -93,26 +95,25 @@ async function saveAudio(page: Page): Promise<void> {
           console.log(`Downloaded audio ${audioIndex}`);
           audioIndex++;
 
-          if (timeoutHandle) {
-            clearTimeout(timeoutHandle);
-          }
-
-          timeoutHandle = setTimeout(() => {
+          // Resolve if we've captured all expected audio files
+          if (audioIndex >= totalPages) {
+            console.log(`All ${totalPages} audio files captured, resolving...`);
             resolve();
-          }, 15000);
+          }
         } catch (error) {
-          // ignore error
+          console.error('Error processing audio:', error);
         }
       }
     });
   });
 
   try {
+    console.log(`Expecting ${totalPages} audio files based on screenshot count`);
     const playButton = page.locator(".play-pause-button");
     await playButton.waitFor({ state: "visible", timeout: 10000 });
     await playButton.click();
   } catch (error) {
-    // ignore error
+    console.error('Error starting audio playback:', error);
   }
 
   await audioPromise;
@@ -132,13 +133,15 @@ async function run(url: string): Promise<void> {
 
   await page.goto(url);
   await page.waitForLoadState("load");
+  // wait for page to load completely
+  await page.waitForTimeout(10000);
 
-  await captureScreenshots(page);
+  const totalPages = await captureScreenshots(page);
 
   await page.reload();
   await page.waitForLoadState("load");
 
-  await saveAudio(page);
+  await saveAudio(page, totalPages);
 
   await browser.close();
 }
